@@ -1,0 +1,78 @@
+{
+  "patch_id": "openpos-class-op-table-zonab-runtime-sync",
+  "patch_version": "2.0.0",
+  "description": "Parche inteligente sobre woocommerce-openpos/lib/class-op-table.php para Zona B. Corrige el warning de request_takeaway, normaliza ver/online_ver/system_ver para que el POS nativo detecte mesas vivas, y limpia caches runtime del desk al escribir.",
+  "target": {
+    "relative_path": "lib/class-op-table.php",
+    "candidate_paths": [
+      "/Users/gustavogonzalez/Documents/proyectos mac/woocommerce-openpos/lib/class-op-table.php",
+      "/var/www/vhosts/clubsamsve.com/zonabclub.com/wp-content/plugins/woocommerce-openpos/lib/class-op-table.php"
+    ]
+  },
+  "supported_fingerprints": {
+    "pristine": [
+      {
+        "sha256": "cdcaf05a03a740b6e3783fa0da3c53995492c7632af97d926ea5031ccf0f3083",
+        "label": "Vendor soportado sin parche Zona B"
+      }
+    ],
+    "patched": [
+      {
+        "sha256": "a3b28f1aea8b8fcec689a4a3a150aee1f8a6842fb682527dd5f914c4b0729ec0",
+        "label": "Archivo parchado Zona B v2"
+      }
+    ]
+  },
+  "patch": {
+    "operations": [
+      {
+        "search": "        }\n        function openpos_logout($session_id, $session_data ){\n",
+        "replace": "        }\n        private function normalize_table_data_version($value){\n            $value = (int)$value;\n            if($value <= 0)\n            {\n                return 0;\n            }\n            if($value < 100000000000 && $value > 1000000000)\n            {\n                return $value * 1000;\n            }\n            return $value;\n        }\n        private function get_table_data_version($data = array()){\n            if(!is_array($data) || empty($data))\n            {\n                return 0;\n            }\n            return max(\n                $this->normalize_table_data_version(isset($data['ver']) ? $data['ver'] : 0),\n                $this->normalize_table_data_version(isset($data['online_ver']) ? $data['online_ver'] : 0),\n                $this->normalize_table_data_version(isset($data['system_ver']) ? $data['system_ver'] : 0),\n                $this->normalize_table_data_version(isset($data['created_at_time']) ? $data['created_at_time'] : 0)\n            );\n        }\n        private function normalize_table_data_versions($data = array()){\n            if(!is_array($data) || empty($data))\n            {\n                return $data;\n            }\n            $version = $this->get_table_data_version($data);\n            if($version > 0)\n            {\n                $data['ver'] = max($this->normalize_table_data_version(isset($data['ver']) ? $data['ver'] : 0),$version);\n                $data['online_ver'] = max($this->normalize_table_data_version(isset($data['online_ver']) ? $data['online_ver'] : 0),$version);\n                $data['system_ver'] = $version;\n            }\n            return $data;\n        }\n        private function clear_table_runtime_cache($table_id,$type = 'dine_in',$outlet_id = 0){\n            $table_key = $table_id;\n            if($type != 'dine_in')\n            {\n                $table_key = $type.'-'.$table_id;\n            }\n            $cache_group = $this->_cache_group;\n            $cache_keys = array(\n                'op_table_'.$outlet_id.'_'.$table_key,\n                'op_table_0_'.$table_key,\n            );\n            foreach(array_unique($cache_keys) as $cache_key)\n            {\n                wp_cache_delete($cache_key, $cache_group );\n            }\n            if($type == 'dine_in')\n            {\n                wp_cache_delete('op_table_'.$table_id, $cache_group );\n                if($outlet_id >= 0)\n                {\n                    wp_cache_delete('op_tables_'.$outlet_id, $cache_group );\n                }\n            }\n        }\n        function openpos_logout($session_id, $session_data ){\n"
+      },
+      {
+        "search": "                        $version = isset($result_table['system_ver']) ? $result_table['system_ver'] : 0;\n",
+        "replace": "                        $version = $this->get_table_data_version($result_table);\n"
+      },
+      {
+        "search": "                        $messages = isset($result_table['messages']) ? $result_table['messages'] : array();\n",
+        "replace": "                        $messages = isset($result_table['messages']) && is_array($result_table['messages']) ? $result_table['messages'] : array();\n"
+      },
+      {
+        "search": "            if ( false !== $cached_data  )\n            {\n                $result = $cached_data;\n            }else{\n                $data = $this->_bill_screen_data($table_id,$type);\n                wp_cache_set( $cache_key, $data, $this->_cache_group );\n                $result = $data;\n            }\n            return apply_filters('op_table_data',$result,$table_id,$type,$outlet_id,$this);\n",
+        "replace": "            if ( false !== $cached_data  )\n            {\n                $result = $cached_data;\n            }else{\n                $data = $this->_bill_screen_data($table_id,$type);\n                $data = $this->normalize_table_data_versions($data);\n                wp_cache_set( $cache_key, $data, $this->_cache_group );\n                $result = $data;\n            }\n            $result = $this->normalize_table_data_versions($result);\n            return apply_filters('op_table_data',$result,$table_id,$type,$outlet_id,$this);\n"
+      },
+      {
+        "search": "           \n            $cache_group = $this->_cache_group;\n            $cache_key = 'op_table_'.$outlet_id.'_'.$table_key;\n\n            $file_path = $this->bill_screen_file_path($table_key);\n",
+        "replace": "           \n            $data = $this->normalize_table_data_versions($data);\n\n            $file_path = $this->bill_screen_file_path($table_key);\n"
+      },
+      {
+        "search": "            wp_cache_delete($cache_key, $cache_group );\n            do_action('op_update_table_data_after',$data,$table_id,$type,$outlet_id,$this);\n",
+        "replace": "            $this->clear_table_runtime_cache($table_id,$type,$outlet_id);\n            do_action('op_update_table_data_after',$data,$table_id,$type,$outlet_id,$this);\n"
+      },
+      {
+        "search": "            $cache_group = $this->_cache_group;\n            $cache_key = 'op_table_'.$outlet_id.'_'.$table_key;\n\n            $table_data = $this->get_data($table_id,$type);\n",
+        "replace": "            $table_data = $this->get_data($table_id,$type);\n"
+      },
+      {
+        "search": "            wp_cache_delete($cache_key, $cache_group );\n            do_action('op_remove_table_data_after',$table_id,$type,$outlet_id,$this);\n",
+        "replace": "            $this->clear_table_runtime_cache($table_id,$type,$outlet_id);\n            do_action('op_remove_table_data_after',$table_id,$type,$outlet_id,$this);\n"
+      },
+      {
+        "search": "            foreach($request_takeaway as $takeaway_id)\n",
+        "replace": "            $request_takeaway = is_array($request_takeaway) ? $request_takeaway : array();\n            foreach($request_takeaway as $takeaway_id)\n"
+      }
+    ]
+  },
+  "anchors": {
+    "patched_contains": [
+      "        private function normalize_table_data_version($value){\n",
+      "                        $version = $this->get_table_data_version($result_table);\n",
+      "            $request_takeaway = is_array($request_takeaway) ? $request_takeaway : array();\n"
+    ]
+  },
+  "policy": {
+    "unknown_upstream": "fail_hard",
+    "patch_drift": "fail_hard",
+    "execution": "check_auto_apply_manual"
+  }
+}
