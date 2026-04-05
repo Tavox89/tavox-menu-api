@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Tavox Menu API
  * Description: API REST y capa orquestadora del menú Tavox para Zona B, con categorías visibles, promociones, multi menú, mesas y flujo de meseros.
- * Version: 2.9.19
+ * Version: 2.9.20
  * Author: ASD Labs
  * License: GPLv2 or later
  * Text Domain: tavox-menu-api
@@ -11,7 +11,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'TAVOX_MENU_API_VERSION', '2.9.19' );
+define( 'TAVOX_MENU_API_VERSION', '2.9.20' );
 define( 'TAVOX_MENU_API_FILE', __FILE__ );
 define( 'TAVOX_MENU_API_PATH', plugin_dir_path( __FILE__ ) );
 define( 'TAVOX_MENU_API_URL', plugin_dir_url( __FILE__ ) );
@@ -37,6 +37,7 @@ require_once TAVOX_MENU_API_PATH . 'includes/table-service.php';
 require_once TAVOX_MENU_API_PATH . 'includes/waiter-service.php';
 require_once TAVOX_MENU_API_PATH . 'includes/admin-access.php';
 require_once TAVOX_MENU_API_PATH . 'includes/admin-settings.php';
+require_once TAVOX_MENU_API_PATH . 'includes/admin-team-access.php';
 require_once TAVOX_MENU_API_PATH . 'includes/admin-categories.php';
 require_once TAVOX_MENU_API_PATH . 'includes/admin-promotions.php';
 require_once TAVOX_MENU_API_PATH . 'includes/rest.php';

@@ -127,6 +127,11 @@ function tavox_menu_api_render_settings_page(): void {
 	echo '</tbody></table>';
 	submit_button( __( 'Guardar ajustes', 'tavox-menu-api' ) );
 	echo '</form>';
+
+	if ( function_exists( 'tavox_menu_api_render_team_access_module' ) ) {
+		tavox_menu_api_render_team_access_module();
+	}
+
 	echo '</div>';
 }
 

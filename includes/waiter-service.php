@@ -16,6 +16,259 @@ function tavox_menu_api_register_waiter_capability(): void {
 add_action( 'init', 'tavox_menu_api_register_waiter_capability', 20 );
 
 /**
+ * Devuelve la definición de pantallas operativas disponibles.
+ *
+ * @return array<string, array<string, string>>
+ */
+function tavox_menu_api_get_waiter_access_scope_definitions(): array {
+	return [
+		'queue'   => [
+			'label' => __( 'Pedidos', 'tavox-menu-api' ),
+			'path'  => '/equipo/pedidos',
+		],
+		'service' => [
+			'label' => __( 'Servicio', 'tavox-menu-api' ),
+			'path'  => '/equipo/servicio',
+		],
+		'menu'    => [
+			'label' => __( 'Menú', 'tavox-menu-api' ),
+			'path'  => '/equipo/menu',
+		],
+		'kitchen' => [
+			'label' => __( 'Cocina', 'tavox-menu-api' ),
+			'path'  => '/equipo/cocina',
+		],
+		'bar'     => [
+			'label' => __( 'Barra', 'tavox-menu-api' ),
+			'path'  => '/equipo/barra',
+		],
+		'horno'   => [
+			'label' => __( 'Horno', 'tavox-menu-api' ),
+			'path'  => '/equipo/horno',
+		],
+	];
+}
+
+/**
+ * Devuelve los scopes válidos del panel operativo.
+ *
+ * @return array<int, string>
+ */
+function tavox_menu_api_get_waiter_access_scope_values(): array {
+	return array_keys( tavox_menu_api_get_waiter_access_scope_definitions() );
+}
+
+/**
+ * Sanitiza un scope operativo.
+ */
+function tavox_menu_api_sanitize_waiter_access_scope( string $value ): string {
+	$scope = sanitize_key( $value );
+
+	return in_array( $scope, tavox_menu_api_get_waiter_access_scope_values(), true ) ? $scope : '';
+}
+
+/**
+ * Normaliza una lista de pantallas operativas.
+ *
+ * @param mixed $scopes
+ * @return array<int, string>
+ */
+function tavox_menu_api_normalize_waiter_access_scopes( $scopes, bool $fallback_all = false ): array {
+	if ( is_string( $scopes ) ) {
+		$decoded = json_decode( $scopes, true );
+		$scopes  = is_array( $decoded ) ? $decoded : wp_parse_list( $scopes );
+	}
+
+	$scopes = is_array( $scopes ) ? $scopes : [];
+	$values = [];
+
+	foreach ( $scopes as $scope ) {
+		$normalized = tavox_menu_api_sanitize_waiter_access_scope( (string) $scope );
+		if ( '' !== $normalized ) {
+			$values[ $normalized ] = $normalized;
+		}
+	}
+
+	if ( ! empty( $values ) ) {
+		return array_values( $values );
+	}
+
+	return $fallback_all ? tavox_menu_api_get_waiter_access_scope_values() : [];
+}
+
+/**
+ * Devuelve el orden preferido para abrir el panel después del login.
+ *
+ * @return array<int, string>
+ */
+function tavox_menu_api_get_waiter_access_scope_priority(): array {
+	return [ 'queue', 'service', 'menu', 'kitchen', 'bar', 'horno' ];
+}
+
+/**
+ * Devuelve las pantallas habilitadas para un usuario del equipo.
+ *
+ * @param WP_User|int $user
+ * @return array<int, string>
+ */
+function tavox_menu_api_get_waiter_access_scopes( $user ): array {
+	$user = $user instanceof WP_User ? $user : get_user_by( 'id', absint( $user ) );
+	if ( ! $user instanceof WP_User ) {
+		return [];
+	}
+
+	$explicit_scopes = tavox_menu_api_normalize_waiter_access_scopes(
+		get_user_meta( $user->ID, '_tavox_waiter_access_scopes', true ),
+		false
+	);
+	if ( ! empty( $explicit_scopes ) ) {
+		return $explicit_scopes;
+	}
+
+	if ( user_can( $user, 'tavox_waiter' ) || user_can( $user, 'manage_woocommerce' ) ) {
+		return tavox_menu_api_get_waiter_access_scope_values();
+	}
+
+	if ( ! empty( get_user_meta( $user->ID, '_tavox_waiter_enabled', true ) ) ) {
+		return tavox_menu_api_get_waiter_access_scope_values();
+	}
+
+	return [];
+}
+
+/**
+ * Devuelve el primer scope operativo disponible para el usuario.
+ *
+ * @param array<int, string> $scopes
+ */
+function tavox_menu_api_get_waiter_default_access_scope( array $scopes ): string {
+	$normalized = tavox_menu_api_normalize_waiter_access_scopes( $scopes, false );
+	$priority   = tavox_menu_api_get_waiter_access_scope_priority();
+
+	foreach ( $priority as $scope ) {
+		if ( in_array( $scope, $normalized, true ) ) {
+			return $scope;
+		}
+	}
+
+	return '';
+}
+
+/**
+ * Devuelve la ruta por defecto del acceso operativo.
+ *
+ * @param array<int, string> $scopes
+ */
+function tavox_menu_api_get_waiter_default_access_path( array $scopes ): string {
+	$default_scope = tavox_menu_api_get_waiter_default_access_scope( $scopes );
+	$definitions   = tavox_menu_api_get_waiter_access_scope_definitions();
+
+	if ( '' !== $default_scope && ! empty( $definitions[ $default_scope ]['path'] ) ) {
+		return (string) $definitions[ $default_scope ]['path'];
+	}
+
+	return '/equipo';
+}
+
+/**
+ * Devuelve el payload de acceso visible para el frontend operativo.
+ *
+ * @return array<string, mixed>
+ */
+function tavox_menu_api_get_waiter_access_payload( WP_User $user ): array {
+	$definitions = tavox_menu_api_get_waiter_access_scope_definitions();
+	$scopes      = tavox_menu_api_get_waiter_access_scopes( $user );
+	$routes      = [];
+
+	foreach ( $scopes as $scope ) {
+		if ( empty( $definitions[ $scope ] ) ) {
+			continue;
+		}
+
+		$routes[] = [
+			'scope' => $scope,
+			'label' => (string) $definitions[ $scope ]['label'],
+			'path'  => (string) $definitions[ $scope ]['path'],
+		];
+	}
+
+	return [
+		'scopes'        => $scopes,
+		'default_scope' => tavox_menu_api_get_waiter_default_access_scope( $scopes ),
+		'default_path'  => tavox_menu_api_get_waiter_default_access_path( $scopes ),
+		'routes'        => $routes,
+	];
+}
+
+/**
+ * Indica si el usuario puede abrir un scope operativo concreto.
+ */
+function tavox_menu_api_user_has_waiter_scope( WP_User $user, string $scope ): bool {
+	$scope = tavox_menu_api_sanitize_waiter_access_scope( $scope );
+	if ( '' === $scope ) {
+		return false;
+	}
+
+	return in_array( $scope, tavox_menu_api_get_waiter_access_scopes( $user ), true );
+}
+
+/**
+ * Exige uno o varios scopes operativos para completar una acción.
+ *
+ * @param array<int, string> $scopes
+ * @return true|WP_Error
+ */
+function tavox_menu_api_require_waiter_any_scope( WP_User $user, array $scopes ) {
+	$definitions = tavox_menu_api_get_waiter_access_scope_definitions();
+	$requested   = tavox_menu_api_normalize_waiter_access_scopes( $scopes, false );
+
+	foreach ( $requested as $scope ) {
+		if ( tavox_menu_api_user_has_waiter_scope( $user, $scope ) ) {
+			return true;
+		}
+	}
+
+	$labels = [];
+	foreach ( $requested as $scope ) {
+		if ( ! empty( $definitions[ $scope ]['label'] ) ) {
+			$labels[] = (string) $definitions[ $scope ]['label'];
+		}
+	}
+
+	$message = ! empty( $labels )
+		? sprintf(
+			/* translators: %s lista de pantallas operativas */
+			__( 'Este acceso no puede abrir %s.', 'tavox-menu-api' ),
+			implode( ', ', $labels )
+		)
+		: __( 'Este acceso no tiene permiso para abrir esa pantalla.', 'tavox-menu-api' );
+
+	return new WP_Error( 'waiter_scope_forbidden', $message, [ 'status' => 403 ] );
+}
+
+/**
+ * Devuelve los canales realtime que puede usar el usuario según sus pantallas.
+ *
+ * @return array<int, string>
+ */
+function tavox_menu_api_get_waiter_allowed_channels( WP_User $user ): array {
+	$channels = [];
+
+	foreach ( tavox_menu_api_get_waiter_access_scopes( $user ) as $scope ) {
+		if ( 'menu' === $scope ) {
+			$channels[] = 'scope:service';
+			continue;
+		}
+
+		$channels[] = 'scope:' . $scope;
+	}
+
+	$channels[] = 'user:' . $user->ID;
+
+	return array_values( array_unique( array_filter( $channels ) ) );
+}
+
+/**
  * Determina si un usuario está habilitado para el panel de meseros.
  */
 function tavox_menu_api_user_can_act_as_waiter( WP_User $user ): bool {
@@ -327,6 +580,7 @@ function tavox_menu_api_build_waiter_client_session_payload( string $session_tok
 			'display_name' => tavox_menu_api_get_waiter_staff_name( $user ),
 			'login'        => $user->user_login,
 		],
+		'access'                => tavox_menu_api_get_waiter_access_payload( $user ),
 		'shared_tables_enabled' => tavox_menu_api_are_shared_tables_enabled(),
 		'realtime'              => tavox_menu_api_get_waiter_realtime_config(),
 	];
@@ -2329,6 +2583,14 @@ function tavox_menu_api_rest_waiter_live( WP_REST_Request $request ) {
 		$scope = 'service';
 	}
 
+	$access_check = tavox_menu_api_require_waiter_any_scope(
+		$session['user'],
+		'service' === $scope ? [ 'service', 'menu' ] : [ $scope ]
+	);
+	if ( is_wp_error( $access_check ) ) {
+		return $access_check;
+	}
+
 	if ( function_exists( 'session_write_close' ) ) {
 		session_write_close();
 	}
@@ -2402,15 +2664,9 @@ function tavox_menu_api_rest_waiter_realtime_auth( WP_REST_Request $request ) {
 				'display_name' => tavox_menu_api_get_waiter_staff_name( $session['user'] ),
 				'login'        => $session['user']->user_login,
 			],
+			'access'               => tavox_menu_api_get_waiter_access_payload( $session['user'] ),
 			'shared_tables_enabled'=> tavox_menu_api_are_shared_tables_enabled(),
-			'allowed_channels'     => [
-				'scope:queue',
-				'scope:service',
-				'scope:kitchen',
-				'scope:bar',
-				'scope:horno',
-				'user:' . $session['user']->ID,
-			],
+			'allowed_channels'     => tavox_menu_api_get_waiter_allowed_channels( $session['user'] ),
 		]
 	);
 }
@@ -2652,6 +2908,7 @@ function tavox_menu_api_rest_waiter_heartbeat( WP_REST_Request $request ) {
 				'display_name' => tavox_menu_api_get_waiter_staff_name( $session['user'] ),
 				'login'        => $session['user']->user_login,
 			],
+			'access'               => tavox_menu_api_get_waiter_access_payload( $session['user'] ),
 			'shared_tables_enabled' => tavox_menu_api_are_shared_tables_enabled(),
 			'realtime'             => tavox_menu_api_get_waiter_realtime_config(),
 		]
@@ -2701,6 +2958,11 @@ function tavox_menu_api_rest_waiter_queue( WP_REST_Request $request ) {
 		return $session;
 	}
 
+	$access_check = tavox_menu_api_require_waiter_any_scope( $session['user'], [ 'queue' ] );
+	if ( is_wp_error( $access_check ) ) {
+		return $access_check;
+	}
+
 	return tavox_menu_api_no_store_rest_response( tavox_menu_api_get_waiter_queue_payload( $session['user'] ) );
 }
 
@@ -2713,6 +2975,11 @@ function tavox_menu_api_rest_waiter_request_history( WP_REST_Request $request ) 
 	$session = tavox_menu_api_require_waiter_session( $request );
 	if ( is_wp_error( $session ) ) {
 		return $session;
+	}
+
+	$access_check = tavox_menu_api_require_waiter_any_scope( $session['user'], [ 'queue', 'service' ] );
+	if ( is_wp_error( $access_check ) ) {
+		return $access_check;
 	}
 
 	$limit = absint( $request->get_param( 'limit' ) ?: 24 );
@@ -2729,6 +2996,11 @@ function tavox_menu_api_rest_waiter_request( WP_REST_Request $request ) {
 	$session = tavox_menu_api_require_waiter_session( $request );
 	if ( is_wp_error( $session ) ) {
 		return $session;
+	}
+
+	$access_check = tavox_menu_api_require_waiter_any_scope( $session['user'], [ 'queue', 'service' ] );
+	if ( is_wp_error( $access_check ) ) {
+		return $access_check;
 	}
 
 	$request_id = absint( $request->get_param( 'request_id' ) );
@@ -2766,6 +3038,11 @@ function tavox_menu_api_rest_waiter_claim( WP_REST_Request $request ) {
 		return $session;
 	}
 
+	$access_check = tavox_menu_api_require_waiter_any_scope( $session['user'], [ 'queue', 'service' ] );
+	if ( is_wp_error( $access_check ) ) {
+		return $access_check;
+	}
+
 	$result = tavox_menu_api_claim_waiter_request( absint( $request->get_param( 'request_id' ) ), $session['user'] );
 	if ( is_wp_error( $result ) ) {
 		return $result;
@@ -2789,6 +3066,11 @@ function tavox_menu_api_rest_waiter_accept( WP_REST_Request $request ) {
 		return $session;
 	}
 
+	$access_check = tavox_menu_api_require_waiter_any_scope( $session['user'], [ 'queue', 'service' ] );
+	if ( is_wp_error( $access_check ) ) {
+		return $access_check;
+	}
+
 	$result = tavox_menu_api_accept_waiter_request( absint( $request->get_param( 'request_id' ) ), $session['user'] );
 	if ( is_wp_error( $result ) ) {
 		return $result;
@@ -2808,6 +3090,11 @@ function tavox_menu_api_rest_waiter_release( WP_REST_Request $request ) {
 	$session = tavox_menu_api_require_waiter_session( $request );
 	if ( is_wp_error( $session ) ) {
 		return $session;
+	}
+
+	$access_check = tavox_menu_api_require_waiter_any_scope( $session['user'], [ 'queue', 'service' ] );
+	if ( is_wp_error( $access_check ) ) {
+		return $access_check;
 	}
 
 	$request_id     = absint( $request->get_param( 'request_id' ) );
@@ -2881,6 +3168,11 @@ function tavox_menu_api_rest_waiter_tables( WP_REST_Request $request ) {
 		return $session;
 	}
 
+	$access_check = tavox_menu_api_require_waiter_any_scope( $session['user'], [ 'service' ] );
+	if ( is_wp_error( $access_check ) ) {
+		return $access_check;
+	}
+
 	return tavox_menu_api_no_store_rest_response( tavox_menu_api_get_waiter_tables_payload( $session['user'] ) );
 }
 
@@ -2896,6 +3188,11 @@ function tavox_menu_api_rest_waiter_production( WP_REST_Request $request ) {
 	}
 
 	$station = (string) $request->get_param( 'station' );
+	$station = tavox_menu_api_sanitize_production_station( $station, 'kitchen' );
+	$access_check = tavox_menu_api_require_waiter_any_scope( $session['user'], [ $station ] );
+	if ( is_wp_error( $access_check ) ) {
+		return $access_check;
+	}
 	return tavox_menu_api_no_store_rest_response( tavox_menu_api_get_waiter_production_payload( $station, $session['user'] ) );
 }
 
@@ -2914,6 +3211,11 @@ function tavox_menu_api_rest_waiter_production_preparing( WP_REST_Request $reque
 	$payload       = is_array( $payload ) ? $payload : [];
 	$table_token   = (string) ( $payload['table_token'] ?? $request->get_param( 'table_token' ) ?? '' );
 	$station       = (string) ( $payload['station'] ?? $request->get_param( 'station' ) ?? '' );
+	$station       = tavox_menu_api_sanitize_production_station( $station, 'kitchen' );
+	$access_check  = tavox_menu_api_require_waiter_any_scope( $session['user'], [ $station ] );
+	if ( is_wp_error( $access_check ) ) {
+		return $access_check;
+	}
 	$mode          = (string) ( $payload['mode'] ?? $request->get_param( 'mode' ) ?? 'all_pending' );
 	$line_ids_raw  = $payload['line_ids'] ?? $request->get_param( 'line_ids' ) ?? [];
 	$line_ids      = is_array( $line_ids_raw ) ? $line_ids_raw : wp_parse_list( (string) $line_ids_raw );
@@ -2977,6 +3279,11 @@ function tavox_menu_api_rest_waiter_table_fulfillment( WP_REST_Request $request 
 	$session = tavox_menu_api_require_waiter_session( $request );
 	if ( is_wp_error( $session ) ) {
 		return $session;
+	}
+
+	$access_check = tavox_menu_api_require_waiter_any_scope( $session['user'], [ 'service' ] );
+	if ( is_wp_error( $access_check ) ) {
+		return $access_check;
 	}
 
 	$payload           = $request->get_json_params();
@@ -3048,6 +3355,11 @@ function tavox_menu_api_rest_waiter_direct_order( WP_REST_Request $request ) {
 	$session = tavox_menu_api_require_waiter_session( $request );
 	if ( is_wp_error( $session ) ) {
 		return $session;
+	}
+
+	$access_check = tavox_menu_api_require_waiter_any_scope( $session['user'], [ 'service', 'menu' ] );
+	if ( is_wp_error( $access_check ) ) {
+		return $access_check;
 	}
 
 	$table_token   = (string) $request->get_param( 'table_token' );
@@ -3146,6 +3458,11 @@ function tavox_menu_api_rest_waiter_deliver_ready( WP_REST_Request $request ) {
 		return $session;
 	}
 
+	$access_check = tavox_menu_api_require_waiter_any_scope( $session['user'], [ 'service' ] );
+	if ( is_wp_error( $access_check ) ) {
+		return $access_check;
+	}
+
 	$table_token = (string) $request->get_param( 'table_token' );
 	$result      = tavox_menu_api_mark_waiter_table_delivered( $table_token, $session['user'] );
 	if ( is_wp_error( $result ) ) {
@@ -3206,6 +3523,11 @@ function tavox_menu_api_rest_waiter_production_ready( WP_REST_Request $request )
 	$payload      = is_array( $payload ) ? $payload : [];
 	$table_token  = (string) ( $payload['table_token'] ?? $request->get_param( 'table_token' ) ?? '' );
 	$station      = (string) ( $payload['station'] ?? $request->get_param( 'station' ) ?? '' );
+	$station      = tavox_menu_api_sanitize_production_station( $station, 'kitchen' );
+	$access_check = tavox_menu_api_require_waiter_any_scope( $session['user'], [ $station ] );
+	if ( is_wp_error( $access_check ) ) {
+		return $access_check;
+	}
 	$mode         = (string) ( $payload['mode'] ?? $request->get_param( 'mode' ) ?? 'all_pending' );
 	$line_ids_raw = $payload['line_ids'] ?? $request->get_param( 'line_ids' ) ?? [];
 	$line_ids     = is_array( $line_ids_raw ) ? $line_ids_raw : wp_parse_list( (string) $line_ids_raw );
